@@ -1,21 +1,33 @@
 package com.example.mmbuw.hellomaps;
 
+import android.location.Criteria;
+import android.location.Location;
+import android.location.LocationListener;
+import android.location.LocationManager;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
+import android.widget.EditText;
+import android.widget.TextView;
+import android.view.Menu;
 
+import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.SupportMapFragment;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
+import com.google.android.gms.maps.GoogleMap.OnMapLongClickListener;
+import com.google.android.gms.maps.GoogleMap.OnMarkerClickListener;
 
-public class MapsActivity extends FragmentActivity {
-
+public class MapsActivity extends FragmentActivity implements LocationListener, OnMapLongClickListener, OnMarkerClickListener {
+    private EditText eText;
     private GoogleMap mMap; // Might be null if Google Play services APK is not available.
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
+        eText = (EditText) findViewById(R.id.edittext);
         setUpMapIfNeeded();
     }
 
@@ -23,6 +35,20 @@ public class MapsActivity extends FragmentActivity {
     protected void onResume() {
         super.onResume();
         setUpMapIfNeeded();
+    }
+
+    @Override
+    public void onMapLongClick(LatLng point) {
+        System.out.println(point);
+        System.out.println(eText.getText().toString());
+        mMap.addMarker(new MarkerOptions().position(point).title("Marker").snippet(eText.getText().toString()));
+
+    }
+
+    @Override
+    public boolean onMarkerClick(Marker marker) {
+        marker.showInfoWindow();
+        return true;
     }
 
     /**
@@ -60,6 +86,40 @@ public class MapsActivity extends FragmentActivity {
      * This should only be called once and when we are sure that {@link #mMap} is not null.
      */
     private void setUpMap() {
-        mMap.addMarker(new MarkerOptions().position(new LatLng(0, 0)).title("Marker"));
+        mMap.setOnMapLongClickListener(this); //add LongKlickListener
+        mMap.setMyLocationEnabled(true); //activate local position
+        LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE); //get the location service
+        Criteria criteria = new Criteria();
+        String provider = locationManager.getBestProvider(criteria, true);
+        Location location = locationManager.getLastKnownLocation(provider); //get last known location
+        if(location!=null){ //if lastLocation is known
+            onLocationChanged(location); //move the cam and update textview
+        }
+        locationManager.requestLocationUpdates(provider, 20000, 0, this); //update the location if moving
+    }
+    @Override
+    public void onLocationChanged(Location location) {
+        TextView tvLocation = (TextView) findViewById(R.id.tv_location);
+        double lat = location.getLatitude();
+        double lon = location.getLongitude();
+        LatLng latLng = new LatLng(lat, lon);
+        mMap.moveCamera(CameraUpdateFactory.newLatLng(latLng));
+        mMap.animateCamera(CameraUpdateFactory.zoomTo(15));
+        tvLocation.setText("lat:" +  lat  + ", long:"+ lon );
+    }
+
+    @Override
+    public void onProviderDisabled(String provider) {
+        // TODO Auto-generated method stub
+    }
+
+    @Override
+    public void onProviderEnabled(String provider) {
+        // TODO Auto-generated method stub
+    }
+
+    @Override
+    public void onStatusChanged(String provider, int status, Bundle extras) {
+        // TODO Auto-generated method stub
     }
 }
