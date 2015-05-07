@@ -1,42 +1,47 @@
 package com.example.mmbuw.hellomaps;
 
-import android.app.Fragment;
-import android.content.Context;
 import android.content.SharedPreferences;
-import android.graphics.Point;
+import android.graphics.Color;
 import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
-import android.preference.PreferenceManager;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
-import android.view.Menu;
 
 import com.google.android.gms.maps.CameraUpdateFactory;
 import com.google.android.gms.maps.GoogleMap;
 import com.google.android.gms.maps.SupportMapFragment;
+import com.google.android.gms.maps.model.CameraPosition;
+import com.google.android.gms.maps.model.Circle;
+import com.google.android.gms.maps.model.CircleOptions;
 import com.google.android.gms.maps.model.LatLng;
+import com.google.android.gms.maps.model.LatLngBounds;
 import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.GoogleMap.OnMapLongClickListener;
 import com.google.android.gms.maps.GoogleMap.OnMarkerClickListener;
 
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
 
-public class MapsActivity extends FragmentActivity implements LocationListener, OnMapLongClickListener, OnMarkerClickListener {
+public class MapsActivity extends FragmentActivity implements LocationListener, OnMapLongClickListener, OnMarkerClickListener, GoogleMap.OnCameraChangeListener {
     private EditText eText;
     private GoogleMap mMap; // Might be null if Google Play services APK is not available.
+    private Set<MarkerOptions> markers;
+    private Set<Circle> circles;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_maps);
         eText = (EditText) findViewById(R.id.edittext);
+        markers = new HashSet<>();
+        circles = new HashSet<>();
         setUpMapIfNeeded();
     }
 
@@ -50,8 +55,9 @@ public class MapsActivity extends FragmentActivity implements LocationListener, 
     public void onMapLongClick(LatLng point) {
         System.out.println(point);
         System.out.println(eText.getText().toString());
-        mMap.addMarker(new MarkerOptions().position(point).title("Marker").snippet(eText.getText().toString()));
-        //TODO: put this marker in sharedPreferences
+        MarkerOptions m = new MarkerOptions().position(point).title("Marker").snippet(eText.getText().toString());
+        markers.add(m);
+        mMap.addMarker(m);
         SharedPreferences prefs = getApplicationContext().getSharedPreferences("com.example.mmbuw.hellomaps.save", 0);
         Set<String> s = prefs.getStringSet("save",new HashSet<String>());
         s.add(eText.getText().toString() + ";" + point.latitude + ";" + point.longitude);
@@ -62,6 +68,94 @@ public class MapsActivity extends FragmentActivity implements LocationListener, 
         e.commit();
         System.out.println("added point to sharedPrefs: " + eText.getText().toString() + "  lat:" + point.latitude + "  lat:" + point.longitude);
     }
+    @Override
+    public void onCameraChange(CameraPosition cameraPosition) {
+        //handle when a user is moving the map
+        clearCircles();
+        for(MarkerOptions m : markers) {
+            LatLngBounds bounding = mMap.getProjection().getVisibleRegion().latLngBounds;
+            if(!bounding.contains(m.getPosition())) {
+
+                LatLng ne = bounding.northeast;
+                double neLat = ne.latitude;
+                double neLon = ne.longitude;
+                LatLng sw = bounding.southwest;
+                double swLat = sw.latitude;
+                double swLon = sw.longitude;
+
+                double distLat = Math.abs(neLat - swLat) * 0.05;
+                double distLon = Math.abs(neLon - swLon) * 0.05;
+
+                LatLng newNE = new LatLng(neLat - distLat, neLon - distLon);
+                LatLng newSW = new LatLng(swLat + distLat, swLon + distLon);
+                LatLng newNW = new LatLng(newNE.latitude,newSW.longitude);
+                LatLng newSE = new LatLng(newSW.latitude,newNE.longitude);
+
+                LatLngBounds newBound = new LatLngBounds(newSW,newNE);
+
+                boolean[] pos = new boolean[4];
+                Arrays.fill(pos,Boolean.FALSE);
+                /*
+                1001 | 1000 | 1010
+                ------------------
+                0001 | 0000 | 0010
+                ------------------
+                0101 | 0100 | 0110
+                */
+                if(m.getPosition().latitude > newBound.northeast.latitude) pos[0] = true;
+                if(m.getPosition().latitude < newBound.southwest.latitude) pos[1] = true;
+                if(m.getPosition().longitude  > newBound.northeast.longitude)  pos[2] = true;
+                if(m.getPosition().longitude  < newBound.southwest.longitude)  pos[3] = true;
+                double radius = 0d;
+                float[] res = new float[1];
+                switch (Arrays.toString(pos)) {
+                    case "[true, false, false, true]": //links oben
+                        radius = dist(m.getPosition(),newNW);
+                        break;
+                    case "[true, false, false, false]"://oben
+                        //radius = Math.abs(m.getPosition().latitude - newNE.latitude);
+                        res = new float[1];
+                        Location.distanceBetween(m.getPosition().latitude,m.getPosition().longitude,newNE.latitude,m.getPosition().longitude,res);
+                        radius = res[0];
+                        break;
+                    case "[true, false, true, false]"://rechts oben
+                        radius = dist(m.getPosition(),newNE);
+                        break;
+                    case "[false, false, false, true]"://links
+                        res = new float[1];
+                        Location.distanceBetween(m.getPosition().latitude,m.getPosition().longitude,m.getPosition().latitude,newSW.longitude,res);
+                        radius = res[0];
+                        break;
+                    case "[false, false, false, false]"://mitte
+                        break;
+                    case "[false, false, true, false]"://rechts
+                        res = new float[1];
+                        Location.distanceBetween(m.getPosition().latitude,m.getPosition().longitude,m.getPosition().latitude,newNE.longitude,res);
+                        radius = res[0];
+                        break;
+                    case "[false, true, false, true]"://links unten
+                        radius = dist(m.getPosition(),newSW);
+                        break;
+                    case "[false, true, false, false]"://unten
+                        res = new float[1];
+                        Location.distanceBetween(m.getPosition().latitude,m.getPosition().longitude,newSE.latitude,m.getPosition().longitude,res);
+                        radius = res[0];
+                        break;
+                    case "[false, true, true, false]":// rechts unten
+                        radius = dist(m.getPosition(),newSE);
+                        break;
+                    default:
+                        break;
+                }
+                System.out.println(radius);
+
+                LatLng point = bounding.getCenter();
+                CircleOptions c = new CircleOptions().center(m.getPosition()).radius(radius).strokeColor(Color.BLUE);
+                Circle circle = mMap.addCircle(c);
+                circles.add(circle);
+            }
+        }
+    }
 
     @Override
     public boolean onMarkerClick(Marker marker) {
@@ -69,21 +163,6 @@ public class MapsActivity extends FragmentActivity implements LocationListener, 
         return true;
     }
 
-    /**
-     * Sets up the map if it is possible to do so (i.e., the Google Play services APK is correctly
-     * installed) and the map has not already been instantiated.. This will ensure that we only ever
-     * call {@link #setUpMap()} once when {@link #mMap} is not null.
-     * <p/>
-     * If it isn't installed {@link SupportMapFragment} (and
-     * {@link com.google.android.gms.maps.MapView MapView}) will show a prompt for the user to
-     * install/update the Google Play services APK on their device.
-     * <p/>
-     * A user can return to this FragmentActivity after following the prompt and correctly
-     * installing/updating/enabling the Google Play services. Since the FragmentActivity may not
-     * have been completely destroyed during this process (it is likely that it would only be
-     * stopped or paused), {@link #onCreate(Bundle)} may not be called again so we should call this
-     * method in {@link #onResume()} to guarantee that it will be called.
-     */
     private void setUpMapIfNeeded() {
         // Do a null check to confirm that we have not already instantiated the map.
         if (mMap == null) {
@@ -97,18 +176,36 @@ public class MapsActivity extends FragmentActivity implements LocationListener, 
         }
     }
 
-    /**
-     * This is where we can add markers or lines, add listeners or move the camera. In this case, we
-     * just add a marker near Africa.
-     * <p/>
-     * This should only be called once and when we are sure that {@link #mMap} is not null.
-     */
     private void setUpMap() {
-        mMap.setOnMapLongClickListener(this); //add LongKlickListener
-        mMap.setMyLocationEnabled(true); //activate local position
-        //TODO: load all Marker from Prefs
-        SharedPreferences prefs = getApplicationContext().getSharedPreferences("com.example.mmbuw.hellomaps.save", 0);
         //getApplicationContext().getSharedPreferences("com.example.mmbuw.hellomaps.save", 0).edit().clear().commit();
+        mMap.setOnMapLongClickListener(this); //add LongKlickListener
+        mMap.setOnCameraChangeListener(this); //add CameraChangeListener
+        initMarkers();
+        mMap.setMyLocationEnabled(true); //activate local position
+        LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE); //get the location service
+        Criteria criteria = new Criteria();
+        String provider = locationManager.getBestProvider(criteria, true);
+        Location location = locationManager.getLastKnownLocation(provider); //get last known location
+        if(location!=null){ //if lastLocation is known
+            onLocationChanged(location); //move the cam and update textview
+        }
+        locationManager.requestLocationUpdates(provider, 20000, 0, this); //update the location if moving
+    }
+
+    public void clearCircles() {
+        for(Circle c : circles) {
+            c.remove();
+        }
+    }
+
+    public double dist(LatLng a, LatLng b) {
+        float[] result = new float[1];
+        Location.distanceBetween(a.latitude,a.longitude,b.latitude,b.longitude,result);
+        return (double)result[0];
+    }
+
+    public void initMarkers() {
+        SharedPreferences prefs = getApplicationContext().getSharedPreferences("com.example.mmbuw.hellomaps.save", 0);
         Set<String> s = prefs.getStringSet("save",new HashSet<String>());
         System.out.println(s.size());
         for(String item : s) {
@@ -120,20 +217,17 @@ public class MapsActivity extends FragmentActivity implements LocationListener, 
             double lat = Double.parseDouble(tmp[1]);
             double lon = Double.parseDouble(tmp[2]);
             LatLng p = new LatLng(lat,lon);
-            mMap.addMarker(new MarkerOptions().position(p).title(title).snippet(snippet));
+            markers.add(new MarkerOptions().position(p).title(title).snippet(snippet));
             System.out.println("loaded marker " + snippet + "  lat:" + lat + "  lat:" + lon);
         }
-        LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE); //get the location service
-        Criteria criteria = new Criteria();
-        String provider = locationManager.getBestProvider(criteria, true);
-        Location location = locationManager.getLastKnownLocation(provider); //get last known location
-        if(location!=null){ //if lastLocation is known
-            onLocationChanged(location); //move the cam and update textview
+        for(MarkerOptions m : markers) {
+            mMap.addMarker(m);
         }
-        locationManager.requestLocationUpdates(provider, 20000, 0, this); //update the location if moving
     }
+
     public void clearMarkers(View view) {
         getApplicationContext().getSharedPreferences("com.example.mmbuw.hellomaps.save", 0).edit().clear().commit();
+        markers.clear();
         mMap.clear();
     }
 
