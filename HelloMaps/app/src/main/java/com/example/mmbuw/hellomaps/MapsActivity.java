@@ -1,11 +1,17 @@
 package com.example.mmbuw.hellomaps;
 
+import android.app.Fragment;
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.graphics.Point;
 import android.location.Criteria;
 import android.location.Location;
 import android.location.LocationListener;
 import android.location.LocationManager;
+import android.preference.PreferenceManager;
 import android.support.v4.app.FragmentActivity;
 import android.os.Bundle;
+import android.view.View;
 import android.widget.EditText;
 import android.widget.TextView;
 import android.view.Menu;
@@ -18,6 +24,9 @@ import com.google.android.gms.maps.model.Marker;
 import com.google.android.gms.maps.model.MarkerOptions;
 import com.google.android.gms.maps.GoogleMap.OnMapLongClickListener;
 import com.google.android.gms.maps.GoogleMap.OnMarkerClickListener;
+
+import java.util.HashSet;
+import java.util.Set;
 
 public class MapsActivity extends FragmentActivity implements LocationListener, OnMapLongClickListener, OnMarkerClickListener {
     private EditText eText;
@@ -42,7 +51,16 @@ public class MapsActivity extends FragmentActivity implements LocationListener, 
         System.out.println(point);
         System.out.println(eText.getText().toString());
         mMap.addMarker(new MarkerOptions().position(point).title("Marker").snippet(eText.getText().toString()));
-
+        //TODO: put this marker in sharedPreferences
+        SharedPreferences prefs = getApplicationContext().getSharedPreferences("com.example.mmbuw.hellomaps.save", 0);
+        Set<String> s = prefs.getStringSet("save",new HashSet<String>());
+        s.add(eText.getText().toString() + ";" + point.latitude + ";" + point.longitude);
+        System.out.println(s.size());
+        SharedPreferences.Editor e = prefs.edit();
+        e.clear();
+        e.putStringSet("save",s);
+        e.commit();
+        System.out.println("added point to sharedPrefs: " + eText.getText().toString() + "  lat:" + point.latitude + "  lat:" + point.longitude);
     }
 
     @Override
@@ -88,6 +106,23 @@ public class MapsActivity extends FragmentActivity implements LocationListener, 
     private void setUpMap() {
         mMap.setOnMapLongClickListener(this); //add LongKlickListener
         mMap.setMyLocationEnabled(true); //activate local position
+        //TODO: load all Marker from Prefs
+        SharedPreferences prefs = getApplicationContext().getSharedPreferences("com.example.mmbuw.hellomaps.save", 0);
+        //getApplicationContext().getSharedPreferences("com.example.mmbuw.hellomaps.save", 0).edit().clear().commit();
+        Set<String> s = prefs.getStringSet("save",new HashSet<String>());
+        System.out.println(s.size());
+        for(String item : s) {
+            System.out.println(item);
+            String[] tmp = item.split(";");
+            System.out.println(tmp[0]);
+            String title = "Marker";
+            String snippet = tmp[0];
+            double lat = Double.parseDouble(tmp[1]);
+            double lon = Double.parseDouble(tmp[2]);
+            LatLng p = new LatLng(lat,lon);
+            mMap.addMarker(new MarkerOptions().position(p).title(title).snippet(snippet));
+            System.out.println("loaded marker " + snippet + "  lat:" + lat + "  lat:" + lon);
+        }
         LocationManager locationManager = (LocationManager) getSystemService(LOCATION_SERVICE); //get the location service
         Criteria criteria = new Criteria();
         String provider = locationManager.getBestProvider(criteria, true);
@@ -97,6 +132,11 @@ public class MapsActivity extends FragmentActivity implements LocationListener, 
         }
         locationManager.requestLocationUpdates(provider, 20000, 0, this); //update the location if moving
     }
+    public void clearMarkers(View view) {
+        getApplicationContext().getSharedPreferences("com.example.mmbuw.hellomaps.save", 0).edit().clear().commit();
+        mMap.clear();
+    }
+
     @Override
     public void onLocationChanged(Location location) {
         TextView tvLocation = (TextView) findViewById(R.id.tv_location);
